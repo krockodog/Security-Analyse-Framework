@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ElitewolfAlert, SecurityLog } from "../types";
-import { matchSigmaRuleAgainstLog } from "../utils";
-import { Play, ShieldAlert, Terminal, Eye, CheckCircle, RefreshCw, Volume2, Edit3, Trash } from "lucide-react";
+import { matchSigmaRuleAgainstLog, validateSigmaRule, formatAndFixSigmaRule } from "../utils";
+import { Play, ShieldAlert, Terminal, Eye, CheckCircle, RefreshCw, Volume2, Edit3, Trash, AlertTriangle, Info, Check, Copy } from "lucide-react";
 import { auth, db, handleFirestoreError, OperationType } from "../firebase";
 import { doc, setDoc } from "firebase/firestore";
 
@@ -14,11 +14,24 @@ interface ElitewolfTabProps {
 }
 
 export default function ElitewolfTab({ alerts, onAlertsUpdated, datawaveLogs, onSelectRuleContext, scenarioId }: ElitewolfTabProps) {
-  const [activeAlerts, setActiveAlerts] = useState<ElitewolfAlert[]>([]);
   const [selectedAlertIndex, setSelectedAlertIndex] = useState(0);
   const [sigmaEditorText, setSigmaEditorText] = useState("");
   const [scanStatus, setScanStatus] = useState<"idle" | "running" | "done" | "matched">("idle");
   const [matchCount, setMatchCount] = useState(0);
+  const [lastLoadedAlertId, setLastLoadedAlertId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const validation = validateSigmaRule(sigmaEditorText);
+
+  const handleCopyToClipboard = () => {
+    const formatted = formatAndFixSigmaRule(sigmaEditorText);
+    navigator.clipboard.writeText(formatted).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(err => {
+      console.error("Kopieren fehlgeschlagen: ", err);
+    });
+  };
 
   // Sound generator using native Web Audio API to bypass external dependencies sound clips safely
   const playAlertSound = () => {
@@ -36,25 +49,39 @@ export default function ElitewolfTab({ alerts, onAlertsUpdated, datawaveLogs, on
     } catch {}
   };
 
-  // Sync state with scenario parameters
+  // Reset selectedAlertIndex to 0 on scenario change
   useEffect(() => {
-    setActiveAlerts([...alerts]);
-    if (alerts.length > 0) {
-      setSigmaEditorText(alerts[0].sigmaRule);
-      setSelectedAlertIndex(0);
+    setSelectedAlertIndex(0);
+  }, [scenarioId]);
+
+  const currentAlert = alerts[selectedAlertIndex] || alerts[0];
+
+  // Synchronize rule editor text based on the active alert's unique ID
+  useEffect(() => {
+    if (currentAlert) {
+      if (currentAlert.id !== lastLoadedAlertId) {
+        setSigmaEditorText(currentAlert.sigmaRule);
+        setLastLoadedAlertId(currentAlert.id);
+      }
+    } else {
+      setSigmaEditorText("");
+      setLastLoadedAlertId(null);
     }
-  }, [alerts]);
-
-  // Sync back live alerts to parent layout scope
-  useEffect(() => {
-    onAlertsUpdated(activeAlerts);
-  }, [activeAlerts]);
-
-  const currentAlert = activeAlerts[selectedAlertIndex] || activeAlerts[0];
+  }, [currentAlert, lastLoadedAlertId]);
 
   // Stand-alone rule compiler and evaluation loop matches YAML attributes against Datawave logs
   const handleCompileAndScan = () => {
     if (!sigmaEditorText) return;
+
+    // Auto-fix indentation, tabs and colons prior to running the compiler / scan!
+    const formatted = formatAndFixSigmaRule(sigmaEditorText);
+    setSigmaEditorText(formatted);
+
+    // Also update current active alert in alerts list as part of saving
+    const updatedAlerts = alerts.map((a, idx) => 
+      idx === selectedAlertIndex ? { ...a, sigmaRule: formatted } : a
+    );
+    onAlertsUpdated(updatedAlerts);
 
     setScanStatus("running");
     setMatchCount(0);
@@ -66,7 +93,7 @@ export default function ElitewolfTab({ alerts, onAlertsUpdated, datawaveLogs, on
 
       // Scan all logs in current Datawave cache for signatures
       datawaveLogs.forEach((log) => {
-        const isMatched = matchSigmaRuleAgainstLog(log, sigmaEditorText);
+        const isMatched = matchSigmaRuleAgainstLog(log, formatted);
         if (isMatched) {
           foundMatches++;
           matchedLogs.push(log);
@@ -79,7 +106,7 @@ export default function ElitewolfTab({ alerts, onAlertsUpdated, datawaveLogs, on
         playAlertSound();
 
         // Spawn actual alert warnings based on matches dynamically!
-        const generatedRuleName = sigmaEditorText.split("\n")
+        const generatedRuleName = formatted.split("\n")
           .find(line => line.toLowerCase().includes("title:"))
           ?.split(":")[1]?.trim() || "Dynamic_Sigma_Trigger";
 
@@ -94,10 +121,10 @@ export default function ElitewolfTab({ alerts, onAlertsUpdated, datawaveLogs, on
           description: generatedDesc,
           status: "Neu",
           severity: "high",
-          sigmaRule: sigmaEditorText
+          sigmaRule: formatted
         };
 
-        setActiveAlerts(prev => [newAlert, ...prev]);
+        onAlertsUpdated([newAlert, ...updatedAlerts]);
         setSelectedAlertIndex(0);
         
         alert(`Alarme ausgelöst! ${foundMatches} Protokollzeilen entsprechen der geänderten Sigma-Erkennungsregel.`);
@@ -109,9 +136,8 @@ export default function ElitewolfTab({ alerts, onAlertsUpdated, datawaveLogs, on
   };
 
   const updateAlertStatus = async (id: string, status: any) => {
-    setActiveAlerts(prev =>
-      prev.map(a => (a.id === id ? { ...a, status } : a))
-    );
+    const updated = alerts.map(a => (a.id === id ? { ...a, status } : a));
+    onAlertsUpdated(updated);
 
     if (auth.currentUser) {
       try {
@@ -128,7 +154,7 @@ export default function ElitewolfTab({ alerts, onAlertsUpdated, datawaveLogs, on
   };
 
   const deleteAlert = (id: string) => {
-    setActiveAlerts(prev => prev.filter(a => a.id !== id));
+    onAlertsUpdated(alerts.filter(a => a.id !== id));
     setSelectedAlertIndex(0);
   };
 
@@ -148,7 +174,7 @@ export default function ElitewolfTab({ alerts, onAlertsUpdated, datawaveLogs, on
           </div>
 
           <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar">
-            {activeAlerts.map((alert, idx) => (
+            {alerts.map((alert, idx) => (
               <button
                 key={alert.id}
                 id={`alert_rule_btn_${idx}`}
@@ -236,19 +262,170 @@ export default function ElitewolfTab({ alerts, onAlertsUpdated, datawaveLogs, on
             </div>
           </div>
 
-          <div className="relative">
-            <textarea
-              id="sigma_yml_textarea"
-              rows={12}
-              value={sigmaEditorText}
-              onChange={(e) => setSigmaEditorText(e.target.value)}
-              className="w-full bg-neutral-950 border border-neutral-800 focus:border-neutral-700 p-4 rounded-lg text-emerald-500 font-mono text-xs outline-none resize-none select-all leading-relaxed"
-            />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 relative">
+            {/* Left side: Editor TextArea */}
+            <div className="lg:col-span-7 flex flex-col relative">
+              {/* Header bar controls directly above the textarea */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-2">
+                {/* Real-time Validation Status Indicator */}
+                <div 
+                  id="sigma_validation_indicator"
+                  className={`flex-1 flex items-center justify-between px-3 py-1.5 rounded-lg border text-xs font-mono transition-all ${
+                    validation.isValidYaml && !validation.errors.some(e => e.severity === "critical" || e.severity === "warning")
+                      ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-400"
+                      : "bg-red-950/30 border-red-500/30 text-red-400"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-mono">
+                    <span className={`w-2 h-2 rounded-full ${validation.isValidYaml && !validation.errors.some(e => e.severity === "critical" || e.severity === "warning") ? "bg-emerald-400 animate-pulse" : "bg-red-500"} shadow`} />
+                    <span>STATUS: <span className="font-bold">{validation.isValidYaml && !validation.errors.some(e => e.severity === "critical" || e.severity === "warning") ? "GRÜN (VALID)" : "ROT (FEHLERHAFT)"}</span></span>
+                  </div>
+                  <span className="text-[10px] text-neutral-500">
+                    {validation.errors.length === 0 ? "Keine Fehler" : `${validation.errors.length} Befunde`}
+                  </span>
+                </div>
+
+                {/* Clipboard Copy Action */}
+                <button
+                  id="btn_copy_sigma_rule"
+                  type="button"
+                  onClick={handleCopyToClipboard}
+                  className="flex items-center justify-center gap-1 border border-neutral-800 bg-neutral-900 hover:bg-neutral-800 hover:border-neutral-700 text-neutral-300 hover:text-white px-3 py-1.5 rounded-lg text-xs font-mono font-semibold cursor-pointer select-none transition-all"
+                  title="In die Zwischenablage kopieren"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3px]" />
+                      <span className="text-emerald-400 font-bold">Kopiert!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-neutral-400" />
+                      <span>In Zwischenablage kopieren</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <textarea
+                id="sigma_yml_textarea"
+                rows={15}
+                value={sigmaEditorText}
+                onChange={(e) => setSigmaEditorText(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 focus:border-neutral-700 p-4 rounded-lg text-emerald-400 font-mono text-xs outline-none resize-none select-all leading-relaxed h-[350px] custom-scrollbar"
+              />
+            </div>
+
+            {/* Right side: Real-time Validator Panel */}
+            <div className="lg:col-span-5 bg-neutral-950/70 border border-neutral-850 rounded-lg p-4 font-mono text-xs flex flex-col justify-between h-[350px] overflow-y-auto custom-scrollbar">
+              <div>
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-[10px] text-neutral-400 uppercase tracking-wider font-bold">Syntaktische Analyse</span>
+                  {validation.isValidYaml ? (
+                    <span className="px-2 py-0.5 rounded bg-emerald-950/40 text-emerald-400 border border-emerald-900/40 text-[10px] font-bold flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      Syntax OK
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded bg-red-950/40 text-red-400 border border-red-900/40 text-[10px] font-bold flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3 text-red-400" />
+                      Syntax Fehler
+                    </span>
+                  )}
+                </div>
+
+                {/* Progress / Schema components check status dots */}
+                <div className="grid grid-cols-2 gap-2 mb-4 bg-neutral-900/60 p-2.5 rounded border border-neutral-850 text-[10px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${validation.errors.some(e => e.message.includes("title")) ? "bg-neutral-700" : "bg-emerald-400"}`} />
+                    <span className="text-neutral-400">title</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${validation.errors.some(e => e.message.includes("id")) ? "bg-neutral-700" : "bg-emerald-400"}`} />
+                    <span className="text-neutral-400">id (UUIDv4)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${validation.errors.some(e => e.message.includes("logsource")) ? "bg-neutral-700" : "bg-emerald-400"}`} />
+                    <span className="text-neutral-400">logsource</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${validation.errors.some(e => e.message.includes("detection")) || validation.errors.some(e => e.message.includes("condition")) ? "bg-neutral-700" : "bg-emerald-400"}`} />
+                    <span className="text-neutral-400">detection / condition</span>
+                  </div>
+                </div>
+
+                {/* Validation checklist status */}
+                <div className="space-y-2">
+                  <div className="text-[10px] text-neutral-500 font-bold uppercase pb-1 border-b border-neutral-900">
+                    Befund-Diagnose ({validation.errors.length})
+                  </div>
+                  {validation.errors.length === 0 ? (
+                    <div className="text-neutral-400 py-6 text-center text-[11px] leading-relaxed flex flex-col items-center justify-center gap-2">
+                      <CheckCircle className="w-6 h-6 text-emerald-500" />
+                      <div>
+                        <p className="text-emerald-400 font-bold">Schema vollständig</p>
+                        <p className="text-[10px] text-neutral-500 mt-0.5">Diese Erkennungsregel entspricht allen Richtlinien.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                      {validation.errors.map((err, i) => (
+                        <div key={i} className={`p-2 rounded border text-[11px] leading-tight flex items-start gap-1.5 ${
+                          err.severity === "critical"
+                            ? "bg-red-950/20 border-red-950/30 text-red-400"
+                            : err.severity === "warning"
+                            ? "bg-amber-950/20 border-amber-950/30 text-amber-500"
+                            : "bg-blue-950/20 border-blue-950/30 text-blue-400"
+                        }`}>
+                          {err.severity === "critical" ? (
+                            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                          ) : err.severity === "warning" ? (
+                            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-amber-500" />
+                          ) : (
+                            <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-blue-400" />
+                          )}
+                          <div className="text-[10px] leading-relaxed">
+                            {err.line && <span className="font-bold mr-1 underline">Z. {err.line}:</span>}
+                            {err.message}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Suggestions / Auto-fix options */}
+              <div className="mt-3 pt-3 border-t border-neutral-900 flex justify-between items-center text-[10px] text-neutral-500">
+                <span>Abschnitte: {validation.detectedSections.join(", ") || "-"}</span>
+                <button
+                  id="btn_format_autofix_yml"
+                  onClick={() => {
+                    const formatted = formatAndFixSigmaRule(sigmaEditorText);
+                    setSigmaEditorText(formatted);
+                    
+                    // Also save/update the currently selected alert's rule text in parent state
+                    if (alerts.length > 0) {
+                      const updatedAlerts = alerts.map((a, idx) => 
+                        idx === selectedAlertIndex ? { ...a, sigmaRule: formatted } : a
+                      );
+                      onAlertsUpdated(updatedAlerts);
+                    }
+                  }}
+                  className="bg-neutral-900 border border-neutral-805 hover:bg-neutral-800 text-amber-500 hover:text-amber-400 font-bold px-2 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer select-none"
+                  title="Ersetzt Tabulatoren durch zwei Leerzeichen und korrigiert YAML-Einrückungen."
+                >
+                  <RefreshCw className="w-3 h-3 text-amber-500 animate-pulse" />
+                  Format-Autofix
+                </button>
+              </div>
+            </div>
+
             {scanStatus === "running" && (
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center rounded-lg">
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center rounded-lg z-10">
                 <div className="text-center space-y-2">
                   <RefreshCw className="w-8 h-8 text-red-500 animate-spin mx-auto" />
-                  <p className="text-xs text-neutral-300 font-mono">Prüfe YAML Syntax & fahre Suchloop über Logdatenbank...</p>
+                  <p className="text-xs text-neutral-300 font-mono font-medium">Validierung & Suchabgleich läuft...</p>
                 </div>
               </div>
             )}

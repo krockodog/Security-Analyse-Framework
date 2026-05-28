@@ -46,6 +46,7 @@ export interface GraphNode {
   severity: 'low' | 'medium' | 'high' | 'none';
   x?: number;
   y?: number;
+  customColor?: string;
 }
 
 export interface GraphEdge {

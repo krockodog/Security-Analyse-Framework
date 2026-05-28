@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { GraphNode, GraphEdge } from "../types";
-import { PlusCircle, Shield, Edit2, Zap, ArrowRight, Trash2 } from "lucide-react";
+import { PlusCircle, Shield, Edit2, Zap, ArrowRight, Trash2, Palette, Check } from "lucide-react";
+
+export const COLOR_PRESETS = [
+  { key: "default", name: "Standard (Alarm)", fill: "fill-neutral-900", stroke: "stroke-neutral-500", border: "border-neutral-800", text: "text-neutral-400", bg: "bg-neutral-950", dot: "bg-neutral-500" },
+  { key: "red", name: "Gefahr / C2 (Rot)", fill: "fill-red-950/80", stroke: "stroke-red-500", border: "border-red-900/50", text: "text-red-400", bg: "bg-red-950/40", dot: "bg-red-500" },
+  { key: "amber", name: "Verdächtig (Gelb)", fill: "fill-amber-950/80", stroke: "stroke-amber-500", border: "border-amber-900/50", text: "text-amber-400", bg: "bg-amber-950/40", dot: "bg-amber-500" },
+  { key: "emerald", name: "Sicher / Whitelist (Grün)", fill: "fill-emerald-950/80", stroke: "stroke-emerald-500", border: "border-emerald-900/50", text: "text-emerald-400", bg: "bg-emerald-950/40", dot: "bg-emerald-500" },
+  { key: "blue", name: "Info / Analyse (Blau)", fill: "fill-blue-950/80", stroke: "stroke-blue-500", border: "border-blue-900/50", text: "text-blue-400", bg: "bg-blue-950/40", dot: "bg-blue-500" },
+  { key: "purple", name: "Malware / Exploit (Lila)", fill: "fill-purple-950/80", stroke: "stroke-purple-500", border: "border-purple-900/50", text: "text-purple-400", bg: "bg-purple-950/40", dot: "bg-purple-500" },
+  { key: "pink", name: "Exfiltration (Pink)", fill: "fill-pink-950/80", stroke: "stroke-pink-500", border: "border-pink-900/50", text: "text-pink-400", bg: "bg-pink-950/40", dot: "bg-pink-500" },
+  { key: "cyan", name: "Gateway / Transit (Cyan)", fill: "fill-cyan-950/80", stroke: "stroke-cyan-500", border: "border-cyan-900/50", text: "text-cyan-400", bg: "bg-cyan-950/40", dot: "bg-cyan-500" }
+];
 
 interface LemonGraphTabProps {
   initialNodes: GraphNode[];
@@ -271,14 +282,17 @@ export default function LemonGraphTab({ initialNodes, initialEdges }: LemonGraph
               {/* Render dynamic customizable nodes */}
               {nodes.map((node) => {
                 const isSelected = selectedNodeId === node.id;
-                const nodeColor = 
-                  node.severity === "high" ? "fill-red-950 stroke-red-500" :
-                  node.severity === "medium" ? "fill-amber-950 stroke-amber-500" :
-                  "fill-blue-950 stroke-blue-500";
-                const textColor = 
-                  node.severity === "high" ? "text-red-400" :
-                  node.severity === "medium" ? "text-amber-400" :
-                  "text-blue-400";
+                const preset = COLOR_PRESETS.find(p => p.key === node.customColor);
+                const nodeColor = preset && preset.key !== "default"
+                  ? `${preset.fill} ${preset.stroke}`
+                  : (node.severity === "high" ? "fill-red-950 stroke-red-500" :
+                     node.severity === "medium" ? "fill-amber-950 stroke-amber-500" :
+                     "fill-blue-950 stroke-blue-500");
+                const textColor = preset && preset.key !== "default"
+                  ? preset.text
+                  : (node.severity === "high" ? "text-red-400" :
+                     node.severity === "medium" ? "text-amber-400" :
+                     "text-blue-400");
 
                 return (
                   <g 
@@ -384,6 +398,46 @@ export default function LemonGraphTab({ initialNodes, initialEdges }: LemonGraph
                   }}
                   className="w-full bg-neutral-950 border border-neutral-800 focus:border-neutral-700 px-3 py-1.5 rounded text-xs text-neutral-200 font-mono outline-none"
                 />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-mono font-semibold text-neutral-500 block mb-1.5 flex items-center gap-1">
+                  <Palette className="w-3.5 h-3.5 text-neutral-400" />
+                  Knoten-Farbe (Kategorie)
+                </label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {COLOR_PRESETS.map((preset) => {
+                    const isPresetSelected = (selectedNode.customColor || "default") === preset.key;
+                    const bgClass = preset.key === "default" 
+                      ? "bg-neutral-800"
+                      : preset.stroke.replace("stroke-", "bg-");
+                    
+                    return (
+                      <button
+                        key={preset.key}
+                        type="button"
+                        id={`btn_color_preset_${preset.key}`}
+                        onClick={() => {
+                          setNodes(prev => prev.map(n => n.id === selectedNode.id ? { ...n, customColor: preset.key } : n));
+                        }}
+                        className={`group relative flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-all cursor-pointer h-12 ${
+                          isPresetSelected 
+                            ? "bg-neutral-800 border-neutral-600 text-neutral-100 font-bold" 
+                            : "bg-neutral-950/40 border-neutral-900 text-neutral-400 hover:bg-neutral-900/60 hover:border-neutral-850"
+                        }`}
+                        title={preset.name}
+                      >
+                        {/* Swatch circle */}
+                        <div className={`w-3.5 h-3.5 rounded-full ${bgClass} shadow-inner flex items-center justify-center transition-transform group-hover:scale-110`}>
+                          {isPresetSelected && (
+                            <Check className="w-2.5 h-2.5 text-neutral-950 stroke-[4px]" />
+                          )}
+                        </div>
+                        <span className="text-[8px] font-mono mt-1 block truncate max-w-full leading-none scale-90">{preset.name.split(" ")[0]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>
