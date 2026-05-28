@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation helper for CustomBinary
+    function isValidCustomBinary(data) {
+      return data.keys().hasAll(['id', 'scenarioId', 'binaryName', 'createdAt'])
+        && data.id is string && isValidId(data.id)
+        && data.scenarioId is string && isValidId(data.scenarioId)
+        && data.binaryName is string && data.binaryName.size() <= 256;
+    }
+
+    // Match block for custom_binaries
+    match /custom_binaries/{binaryId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(binaryId) && isValidCustomBinary(incoming()) && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(binaryId) && isValidCustomBinary(incoming()) && incoming().createdAt == existing().createdAt && incoming().diff(existing()).affectedKeys().hasOnly(['functions', 'strings', 'symbols']);
+      allow delete: if isSignedIn();
+    }
+
+    // Validation helper for AlertStatus
+    function isValidAlertStatus(data) {
+      return data.keys().hasAll(['id', 'scenarioId', 'status', 'updatedAt'])
+        && data.keys().size() == 4
+        && data.id is string && isValidId(data.id)
+        && data.scenarioId is string && isValidId(data.scenarioId)
+        && data.status is string && (data.status == 'Neu' || data.status == 'Eskaliert' || data.status == 'Fehlalarm' || data.status == 'Gelöst');
+    }
+
+    // Match block for alert_statuses
+    match /alert_statuses/{alertId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(alertId) && isValidAlertStatus(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(alertId) && isValidAlertStatus(incoming()) && incoming().updatedAt == request.time && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isSignedIn();
+    }
+
+    // Validation helper for ChatRoomMessage
+    function isValidChatMessage(data) {
+      return data.keys().hasAll(['id', 'userId', 'scenarioId', 'role', 'content', 'timestamp'])
+        && data.keys().size() == 6
+        && data.id is string && isValidId(data.id)
+        && data.userId is string && data.userId == request.auth.uid
+        && data.scenarioId is string && isValidId(data.scenarioId)
+        && data.role is string && (data.role == 'user' || data.role == 'model')
+        && data.content is string && data.content.size() <= 10000;
+    }
+
+    // Match block for chats
+    match /chats/{chatId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(chatId) && isValidChatMessage(incoming()) && incoming().timestamp == request.time;
+      allow update: if false; // Chats are immutable in this system
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+  }
+}

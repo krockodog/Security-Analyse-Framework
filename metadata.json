@@ -1,0 +1,6 @@
+{
+  "name": "Sicherheits-Analyse-Framework",
+  "description": "Ein interaktives Dashboard zur Erprobung des integrierten Sicherheits-Analyse-Frameworks bestehend aus Emissary, Ghidra, Datawave, LemonGraph und Elitewolf.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

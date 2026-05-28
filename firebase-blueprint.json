@@ -1,0 +1,115 @@
+{
+  "entities": {
+    "CustomBinary": {
+      "title": "Custom Reverse Engineered Binary",
+      "description": "User-injected custom target executable that has been processed for Ghidra forensic analysis.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the binary"
+        },
+        "scenarioId": {
+          "type": "string",
+          "description": "Associated simulation scenario code"
+        },
+        "binaryName": {
+          "type": "string",
+          "description": "Name of the target ELF or PE executable"
+        },
+        "functions": {
+          "type": "array",
+          "description": "Decompiled functions list extracted from the binary"
+        },
+        "strings": {
+          "type": "array",
+          "description": "Extracted classification strings"
+        },
+        "symbols": {
+          "type": "array",
+          "description": "Exported symbols and memory addresses"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Sovereign timestamp when the analysis was ingested"
+        }
+      },
+      "required": ["id", "scenarioId", "binaryName", "createdAt"]
+    },
+    "AlertStatus": {
+      "title": "Alert Status Overrides",
+      "description": "Override status for the Elitewolf security alerts",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The target Elitewolf alert ID being overwritten"
+        },
+        "scenarioId": {
+          "type": "string",
+          "description": "Associated scenario identifier"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Neu", "Eskaliert", "Fehlalarm", "Gelöst"],
+          "description": "Definitive action state of the forensics alert"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Temporal timestamp of rule classification change"
+        }
+      },
+      "required": ["id", "scenarioId", "status", "updatedAt"]
+    },
+    "ChatRoomMessage": {
+      "title": "Forensic AI Consultant Chat History",
+      "description": "Stored conversation log streams that have been parsed by the Gemini Security Expert Model",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique UUID of the chat exchange bubble"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Authenticated analyst UID"
+        },
+        "scenarioId": {
+          "type": "string",
+          "description": "Active analysis sandbox ID context"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "model"],
+          "description": "Identity node creator"
+        },
+        "content": {
+          "type": "string",
+          "description": "Markdown body content"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Temporal point of transmission"
+        }
+      },
+      "required": ["id", "userId", "scenarioId", "role", "content", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/custom_binaries/{binaryId}": {
+      "schema": "CustomBinary",
+      "description": "Secured custom injected reversed binary payloads"
+    },
+    "/alert_statuses/{alertId}": {
+      "schema": "AlertStatus",
+      "description": "Overridden status state tracking database for alerts"
+    },
+    "/chats/{chatId}": {
+      "schema": "ChatRoomMessage",
+      "description": "Stored conversational flows from Gemini AI analytics consultancy dialogues"
+    }
+  }
+}
